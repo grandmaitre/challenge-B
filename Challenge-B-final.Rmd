@@ -1,0 +1,354 @@
+---
+title: "Challenge B"
+author: "Maxime GRANDMAITRE Gauderic THIETART Margaux SINCEUX"
+date: "06/12/2017"
+output: html_document
+---
+
+```{r}
+knitr:: opts_chunk$set(echo = TRUE)
+```
+###TASK 1B : Predicting house prices in Ames, Iowa
+
+
+```{r setup, include = FALSE}
+train <- read.csv(file.choose(), header = T, dec = ".")
+test <- read.csv(file.choose(), header = T, dec = ".")
+```
+
+
+We clean our training database as we did in Challenge A : 
+- we omit the NA
+- we convert all character variables into factors
+
+
+```{r, include = FALSE}
+library(tidyverse)
+remove.vars <- train %>% summarise_all(.funs = funs(sum(is.na(.)))) %>% gather(key = "feature", value = "missing.observations") %>% filter(missing.observations > 100) %>% select(feature) %>% unlist
+
+train <- train %>% select(- one_of(remove.vars)) 
+
+train %>% summarise_all(.funs = funs(sum(is.na(.)))) %>% gather(key = "feature", value = "missing.observations") %>% filter(missing.observations > 0)
+
+train <- train %>% filter(is.na(GarageType) == FALSE, is.na(MasVnrType) == FALSE, is.na(BsmtFinType2) == FALSE, is.na(BsmtExposure) == FALSE, is.na(Electrical) == FALSE)
+
+cat_var <- train %>% summarise_all(.funs = funs(is.character(.))) %>% gather(key = "feature", value = "is.chr") %>% filter(is.chr == TRUE) %>% select(feature) %>% unlist
+
+train %>% mutate_at(.cols = cat_var, .funs = as.factor)
+```
+
+
+```{r, include=FALSE}
+remove.vars <- test %>% summarise_all(.funs = funs(sum(is.na(.)))) %>% gather(key = "feature", value = "missing.observations") %>% filter(missing.observations > 100) %>% select(feature) %>% unlist
+
+test <- test %>% select(- one_of(remove.vars)) 
+
+test %>% summarise_all(.funs = funs(sum(is.na(.)))) %>% gather(key = "feature", value = "missing.observations") %>% filter(missing.observations > 0)
+
+test <- test %>% filter(is.na(GarageType) == FALSE, is.na(MasVnrType) == FALSE, is.na(BsmtFinType2) == FALSE, is.na(BsmtExposure) == FALSE, is.na(Electrical) == FALSE, is.na(MSZoning) == FALSE, is.na(Utilities) == FALSE, is.na(BsmtQual) == FALSE, is.na(BsmtCond) == FALSE, is.na(KitchenQual) == FALSE, is.na(Functional) == FALSE, is.na(GarageYrBlt) == FALSE, is.na(GarageFinish) == FALSE, is.na(GarageCars) == FALSE, is.na(GarageArea) == FALSE, is.na(SaleType) == FALSE)
+
+cat_var <- test %>% summarise_all(.funs = funs(is.character(.))) %>% gather(key = "feature", value = "is.chr") %>% filter(is.chr == TRUE) %>% select(feature) %>% unlist
+
+test %>% mutate_at(.cols = cat_var, .funs = as.factor)
+
+test %>% summarise_all(.funs= funs(sum(is.na(.)))) %>% gather(key = "feature", value = "missing.observations") %>% filter(missing.observations > 0)
+```
+
+
+
+##Question 1: choose a ML technique
+
+Random Forest is a Machine Learning algorithm wich is efficient to spot the links between one independent variable and some explanatory ones. Random Forest will classify the explanatory variables in function of their links with the variable we have to explain.
+It consists of doing the predictions average of multiple independent models to reduce the variance and so the prediction error.
+
+
+```{r, echo = TRUE}
+library(randomForest)
+```
+
+
+##Question 2: Train the chosen technique on the training data
+
+We use the random forest method by doing a regression, and deleting the "Id".
+
+```{r, echo = TRUE}
+set.seed(123)
+fit <- randomForest(SalePrice~.-Id, data = train)
+print(fit)
+```
+
+We are doing varImpPlot to analyze which variables have more impact on the Sale Price.
+
+```{r, echo =TRUE,  fig.width=15}
+varImpPlot(fit)
+```
+
+It is the same thing but in a table format. 
+
+```{r, include=TRUE}
+fit$importance[order(fit$importance[, 1], decreasing = TRUE), ]
+```
+
+
+
+##Question 3:  Make predictions on the test data, and compare them to the predictions of a linear regression of your choice
+
+We had to transform the factor variables because they have not the same levels in the data train and the data test. So we modified this to have the same levels. 
+
+```{r, include=TRUE}
+levels(test$Utilities) <- levels(train$Utilities)
+levels(test$Condition2) <- levels(train$Condition2)
+levels(test$HouseStyle) <- levels(train$HouseStyle)
+levels(test$RoofMatl) <- levels(train$RoofMatl)
+levels(test$Exterior2nd) <- levels(train$Exterior2nd)
+levels(test$Electrical) <- levels(train$Electrical)
+levels(test$GarageQual) <- levels(train$GarageQual)
+levels(test$Exterior1st) <- levels(train$Exterior1st)
+levels(test$Heating) <- levels(train$Heating)
+
+
+prediction <- data.frame(Id= test$Id, SalePrice_predict = predict(fit, test, type="response"))
+```
+
+We took the linear regression of challenge A to compare it with our new predicitons. 
+
+```{r, include=FALSE}
+lm_model_2 <- lm(SalePrice ~ MSZoning + LotArea + Neighborhood  + YearBuilt + OverallQual, data = train)
+
+lm_model_2
+
+
+prediction_lm <- data.frame(Id= test$Id, SalePrice_predict = predict(lm_model_2, test, type="response"))
+
+prediction_lm
+```
+
+We compare thanks to a plot, and to check that it is not the same we did the average of the difference between them. 
+
+```{r, echo = TRUE}
+library(ggplot2)
+
+predict2 <- data.frame(prediction, prediction_lm)
+pred <- predict2[,-3]
+
+plot <- ggplot(pred, aes (x = Id, y = SalePrice_predict)) +
+  geom_point(data = prediction, aes(color="prediction")) +  
+  geom_point(data = prediction_lm, aes(color="prediction_lm"))
+
+difference <- prediction_lm - prediction
+summary(abs(difference[,2]))
+```
+
+
+
+
+### Task 2B : Overfitting in Machine Learning 
+
+
+```{r, echo = TRUE}
+rm(list = ls())
+
+library(tidyverse)
+library(np)
+library(caret)
+# True model : y = x^3 + epsilon
+set.seed(1)
+Nsim <- 150
+b <- c(0,1)
+x0 <- rep(1, Nsim)
+x1 <- rnorm(n = Nsim)
+
+X <- cbind(x0, x1^3)
+y.true <- X %*% b
+
+eps <- rnorm(n = Nsim)
+y <- X %*% b + eps
+
+df <- tbl_df(y[,1]) %>% rename(y = value) %>% bind_cols(tbl_df(x1)) %>% rename(x = value) %>% bind_cols(tbl_df(y.true[,1])) %>% rename(y.true = value)
+```
+
+We split sample into training and testing
+```{r, echo = TRUE}
+training.index <- createDataPartition(y = y, times = 1, p = 0.8)
+df <- df %>% mutate(which.data = ifelse(1:n() %in% training.index$Resample1, "training", "test"))
+
+training <- df %>% filter(which.data == "training")
+test <- df %>% filter(which.data == "test")
+
+```
+
+We do a linear regression 
+```{r, echo = TRUE}
+lm.fit <- lm(y ~ x, data = training)
+summary(lm.fit)
+
+df <- df %>% mutate(y.lm = predict(object = lm.fit, newdata = df))
+training <- training %>% mutate(y.lm = predict(object = lm.fit))
+```
+
+
+##Step 1 : lowflex
+
+```{r, echo = TRUE}
+ll.fit.lowflex <- npreg(y ~ x, data = training, method = "ll", bws = 0.5)
+summary(ll.fit.lowflex)
+```
+
+##Step 2 : highflex
+```{r, echo = TRUE}
+ll.fit.highflex <- npreg(y ~ x, data = training, method = "ll", bws = 0.01)
+summary(ll.fit.highflex)
+```
+
+##Step 3 : plot highflex and lowflex in the training data
+
+```{r, echo = TRUE}
+df <- df %>% mutate(y.ll.lowflex = predict(object = ll.fit.lowflex, newdata = df), y.ll.highflex = predict(object = ll.fit.highflex, newdata = df))
+
+
+training <- training %>% mutate(y.ll.lowflex = predict(object = ll.fit.lowflex, newdata = training), y.ll.highflex = predict(object = ll.fit.highflex, newdata = training))
+
+training
+
+test <- test %>% mutate(y.ll.lowflex = predict(object = ll.fit.lowflex, newdata = test), y.ll.highflex = predict(object = ll.fit.highflex, newdata = test))
+
+test
+```
+
+We simulate Nsim = 100 points of (x,y)
+
+```{r, echo = TRUE}
+ggplot(training) + geom_point(mapping = aes(x = x, y = y)) + 
+  geom_line(mapping = aes(x = x, y = y.true)) + 
+  geom_line(mapping = aes(x = x, y = y.ll.highflex), col="blue") +
+  geom_line(mapping = aes(x = x, y = y.ll.lowflex), col="red")
+```
+
+
+##Step 4 : analysis 
+
+According to the plot, we can conclude that the predictions from ll.fit.highflex are more variable than the ones from ll.fit.lowflex but he has also least bias. 
+
+##Step 5 : plot highflex and lowflex in the test data
+```{r, echo = TRUE}
+ggplot(test) + geom_point(mapping = aes(x = x, y = y)) + 
+  geom_line(mapping = aes(x = x, y = y.true)) + 
+  geom_line(mapping = aes(x = x, y = y.ll.highflex), col="blue") +
+  geom_line(mapping = aes(x = x, y = y.ll.lowflex), col="red")
+```
+
+We can see graphicaly than the predictions from ll.fit.highflex are more variable than the ones from ll.fit.lowflex when we are on the limit of the graph, but he has also least bias. 
+
+##Step 6 : Create vector of several bandwidth
+```{r, echo = TRUE}
+bw <- seq(0.01, 0.5, by = 0.001)
+```
+
+##Step 7 : Train local linear model y ~ x on training with each bandwidth
+```{r, echo = TRUE}
+llbw.fit <- lapply(X = bw, FUN = function(bw) {npreg(y ~ x, data = training, method = "ll", bws = bw)})
+head (llbw.fit)
+```
+
+##Step 8 : Compute for each bandwidth the MSE-training
+```{r, echo = TRUE}
+mse.training <- function(fit.model){
+  predictions <- predict(object = fit.model, newdata = training)
+  training %>% mutate(squared.error = (y - predictions)^2) %>% summarize(mse = mean(squared.error))
+}
+mse.train.results <- unlist(lapply(X = llbw.fit, FUN = mse.training))
+head (mse.train.results)
+```
+
+##Step 9: Compute for each bandwidth the MSE-test
+```{r, echo = TRUE}
+mse.test <- function(fit.model){
+  predictions <- predict(object = fit.model, newdata = test)
+  test %>% mutate(squared.error = (y - predictions)^2) %>% summarize(mse = mean(squared.error))
+}
+mse.test.results <- unlist(lapply(X = llbw.fit, FUN = mse.test))
+head (mse.test.results)
+```
+
+##Step 10 : Plot
+```{r, echo = FALSE}
+mse.df <- tbl_df(data.frame(bandwidth = bw, mse.train = mse.train.results, mse.test = mse.test.results))
+mse.df
+
+attach(mse.df)
+```
+
+
+```{r, echo = TRUE}
+ggplot(mse.df) + 
+  geom_line(mapping = aes(x = bandwidth, y = mse.train), color = "blue") +
+  geom_line(mapping = aes(x = bandwidth, y = mse.test), color = "orange")
+
+```
+
+
+
+
+### Task 3B : Privacy regulation compliance in France
+
+##Step 1 : Import Data
+
+```{r, echo = TRUE}
+library(data.table)
+mat <- fread(file.choose("~/master 1 S1/r/challenge B/sirene_201710_L_M/sirc-17804_9075_14209_201710_L_M_20171101_030132835.csv"),sep =";", dec = ".", header = T, select = c("SIREN", "LIBTEFEN", "DATEMAJ"))
+head (mat)
+```
+
+##Step 2 : Nice table
+```{r, echo = TRUE}
+cil <- read.csv(file.choose("OpenCNIL_Organismes_avec_CIL_VD_20171204"),header = T, dec = ".",sep = ";")
+attach(cil)
+```
+
+We change the "code postal" by taking the first two digits.
+```{r, echo = TRUE}
+departement <- substr (cil$Code_Postal, 1,2)
+departement = as.factor(departement)
+dep_clear <- data.frame(summary(departement))
+dep_clear
+```
+
+
+##Step 3 : SIREN - CNIL
+
+We start by rename the variable ï..siren by SIREN for obtained the same name of the variable siren between matrice and cil. 
+ 
+```{r, include = FALSE}
+colnames(cil)[colnames(cil)=="?..Siren"] <- "SIREN"
+summary(cil)
+```
+
+After that we merge the SIREN dataset into the CNIL data with the merge function. 
+```{r, echo = FALSE}
+mat$SIREN= as.integer(mat$SIREN)
+step_3 <- merge(mat, cil, by = "SIREN")
+
+step_3$DATE <- substr(step_3$DATEMAJ, 1,10)
+head (format(step_3$DATE, format="%Y %m %d"))
+step_3$DATE <- as.Date(step_3$DATE)
+
+library(dplyr)
+last <- step_3 %>%
+  group_by(SIREN) %>%
+  filter(DATE==max(DATE))
+
+```
+
+
+##Step 4 : histogram
+```{r,fig.width=20, fig.height=12, include= TRUE}
+
+clean <- last[order(last$LIBTEFEN, decreasing=TRUE),]
+
+clean$EFFECTIF <- factor(clean$LIBTEFEN, labels= c("0 salari?", "1 ou 2 salari?s", "3 ? 5 salari?s", "6 ? 9 salari?s", "10 ? 19 salari?s", "20 ? 49 salari?s", "50 ? 99 salari?s", "100 ? 199 salari?s", "200 ? 249 salari?s", "250 ? 499 salari?s", "500 ? 999 salari?s", "1000 ? 1 999 salari?s", "2 000 ? 4 999 salari?s", "5 000 ? 9 999 salari?s", "10 000 salari?s et plus", "Unit?s non employeuses"))
+
+
+library(ggplot2)
+ggplot(clean, aes(EFFECTIF)) +
+  geom_histogram(stat="count", col="blue")
+```
